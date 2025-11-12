@@ -313,12 +313,12 @@ class DeepOSWSRM(nn.Module):
 # Loss functions
 class AdaptiveFractionCrossEntropyLoss(nn.Module):
     """
-    Adaptive fraction-based cross-entropy loss as described in the paper
-    Equation (5): Higher weights for pixels with smaller water fractions
+    Adaptive fraction-based cross-entropy loss with class balancing
     """
-    def __init__(self, eta=-0.5):
+    def __init__(self, eta=-0.5, water_weight=1.2):
         super(AdaptiveFractionCrossEntropyLoss, self).__init__()
         self.eta = eta
+        self.water_weight = water_weight
     
     def forward(self, predictions, targets, fractions):
         """
@@ -329,18 +329,27 @@ class AdaptiveFractionCrossEntropyLoss(nn.Module):
         """
         # Apply softmax to get probabilities
         probs = F.softmax(predictions, dim=1)
-        water_prob = probs[:, 1:2]  # Probability of water class
+        water_prob = probs[:, 1:2]
         
         # Adaptive weight based on fraction
-        weight = torch.exp(self.eta * fractions)
+        adaptive_weight = torch.exp(self.eta * fractions)
         
-        # Binary cross-entropy with adaptive weight
+        # Class weight (heavily emphasize water pixels)
         targets = targets.float()
-        loss = -weight * (targets * torch.log(water_prob + 1e-7) + 
-                         (1 - targets) * torch.log(1 - water_prob + 1e-7))
+        class_weight = torch.where(targets > 0.5, 
+                                   torch.tensor(self.water_weight).to(targets.device),
+                                   torch.tensor(1.0).to(targets.device))
+        
+        # Combined weight
+        total_weight = adaptive_weight * class_weight
+        
+        # Binary cross-entropy
+        loss = -total_weight * (
+            targets * torch.log(water_prob + 1e-7) + 
+            (1 - targets) * torch.log(1 - water_prob + 1e-7)
+        )
         
         return loss.mean()
-
 
 class DeepOSWSRMLoss(nn.Module):
     """

@@ -210,7 +210,7 @@ class WaterMapper:
         print(f"Saved binary map: {binary_path}")
     
     def visualize_results(self, sentinel2_path, water_fraction, water_map, 
-                         output_path=None):
+                     output_path=None):
         """
         Visualize prediction results
         
@@ -222,12 +222,30 @@ class WaterMapper:
         """
         # Load Sentinel-2 for RGB
         with rasterio.open(sentinel2_path) as src:
-            # Assuming bands are B, G, R, NIR
-            s2_data = src.read([3, 2, 1])  # RGB
+            # Read all bands first to check what we have
+            s2_data = src.read()  # Read all bands
+            print(f"S2 data shape: {s2_data.shape}")
+            print(f"S2 value range: {s2_data.min():.4f} to {s2_data.max():.4f}")
+            
+            # Bands are: B2(Blue), B3(Green), B4(Red), B8(NIR) = indices 0,1,2,3
+            # For RGB display, we need Red, Green, Blue = indices 2, 1, 0
+            if s2_data.shape[0] >= 4:
+                s2_rgb = np.stack([s2_data[2], s2_data[1], s2_data[0]], axis=0)  # R, G, B
+            else:
+                s2_rgb = s2_data[:3]  # Use first 3 bands
+        
+        # Transpose to HWC for matplotlib
+        s2_rgb = np.transpose(s2_rgb, (1, 2, 0))
         
         # Normalize for display
-        s2_rgb = np.transpose(s2_data, (1, 2, 0))
-        s2_rgb = np.clip(s2_rgb * 3, 0, 1)  # Enhance brightness
+        # Sentinel-2 reflectance is typically 0-1, but may have outliers
+        p2, p98 = np.percentile(s2_rgb, (2, 98))
+        s2_rgb = np.clip((s2_rgb - p2) / (p98 - p2 + 1e-8), 0, 1)
+        
+        # Enhance contrast
+        s2_rgb = np.power(s2_rgb, 0.8)  # Gamma correction instead of multiply
+        
+        print(f"RGB shape: {s2_rgb.shape}, range: {s2_rgb.min():.2f} to {s2_rgb.max():.2f}")
         
         # Create figure
         fig, axes = plt.subplots(1, 3, figsize=(18, 6))
@@ -243,8 +261,8 @@ class WaterMapper:
         axes[1].axis('off')
         plt.colorbar(im1, ax=axes[1], fraction=0.046)
         
-        # Plot water map
-        axes[2].imshow(water_map, cmap='Blues')
+        # Plot water map (use probability if available, otherwise binary)
+        axes[2].imshow(water_map, cmap='Blues', vmin=0, vmax=1)
         axes[2].set_title(f'Water Map (Fine, Scale {self.config["scale_factor"]}x)')
         axes[2].axis('off')
         
@@ -257,7 +275,6 @@ class WaterMapper:
             plt.show()
         
         plt.close()
-
 
 def parse_args():
     """Parse command line arguments"""

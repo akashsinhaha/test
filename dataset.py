@@ -200,7 +200,7 @@ class DeepOSWSRMDataset(Dataset):
         h_mask, w_mask = water_mask.shape
 
         # Debug info (optional)
-        print(f"Water mask shape: {water_mask.shape}, expected ≈ {h*self.scale_factor}×{w*self.scale_factor}")
+        # print(f"Water mask shape: {water_mask.shape}, expected ≈ {h*self.scale_factor}×{w*self.scale_factor}")
 
         # Compute actual scale ratios between fine and coarse
         actual_scale_h = h_mask / h
@@ -270,7 +270,11 @@ class DeepOSWSRMDataset(Dataset):
             # They don't need augmentation since they're ground truth
 
         # Simulate clouds on Sentinel-2
-        s2_patch, cloud_mask = self._simulate_clouds(s2_patch)
+        if self.augment:  # Only during training
+            # Reduce cloud coverage range for better learning
+            s2_patch, cloud_mask = self._simulate_clouds(s2_patch, coverage_rate=np.random.uniform(0.1, 0.3))
+        else:  # No clouds during validation
+            cloud_mask = np.zeros_like(s2_patch[0])
 
         # Normalize if enabled
         if self.normalize:
